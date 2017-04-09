@@ -172,7 +172,7 @@ class ProMP(object):
         self.meanW = np.mean(self.W, 0)                                                             # mean of weights
         w1 = np.array(map(lambda x: x - self.meanW.T, self.W))
         self.sigmaW = np.dot(w1.T, w1)/self.nrTraj                                                  # covariance of weights
-        self.sigmaSignal = np.sum(np.sum((np.dot(self.W, self.Phi) - self.Y) ** 2)) / (self.nrTraj * self.nrSamples) # the measurement accuracy computed by MLE
+        self.sigmaSignal = np.sum(np.sum((np.dot(self.W, self.Phi) - self.Y) ** 2)) / (self.nrTraj * self.nrSamples)
         
     @property
     def noise(self):
@@ -294,18 +294,10 @@ class IProMP(NDProMP):
         self.num_joints = num_joints+7
         self.promp_con = NDProMP(self.num_joints, nrBasis, sigma, num_samples)
         self.meanAlpha = None
-        self.sigmaAlpha = None        
+        self.sigmaAlpha = None
     
-    def add_demonstration(self, demonstration):
-        """
-        Add a new (N+7)-joints demonstration[time][joint] and update the model
-        :param demonstration: List of "num_joints" demonstrations
-        :return:
-        """
-        demonstration = np.array(demonstration).T  # Revert the representation for each time for each joint, for each joint for each time
-
-        if len(demonstration) != self.num_joints:
-            raise ValueError("The given demonstration has {} joints while num_joints={}".format(len(demonstration), self.num_joints))
-
-        for joint_demo_idx, joint_demo in enumerate(demonstration):
-            self.promps[joint_demo_idx].add_demonstration(joint_demo)
+    def generate_trajectory(self, randomness=1e-10):
+        trajectory = []
+        for joint_demo in range(self.num_joints):
+            trajectory.append(self.promps[joint_demo].generate_trajectory(randomness))
+        return np.array(trajectory).T[0]
