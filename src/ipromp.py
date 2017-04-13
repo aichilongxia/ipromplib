@@ -12,20 +12,20 @@ class NDProMP(object):
     """
     def __init__(self, num_joints, nrBasis=11, sigma=0.05, num_samples=100):
         """
-
         :param num_joints: Number of underlying ProMPs
         :param nrBasis:
         :param sigma:
         """
         if num_joints < 1:
             raise ValueError("You must declare at least 1 joint in a NDProMP")
-        self._num_joints = num_joints
+#        self._num_joints = num_joints
+        self.num_joints = num_joints
         self.promps = [ProMP(nrBasis, sigma, num_samples) for joint in range(num_joints)]
         self.colors = ['b', 'g', 'r', 'c', 'm', 'y', 'chocolate', 'deepskyblue', 'sage', 'darkviolet', 'crimson']
 
-    @property
-    def num_joints(self):
-        return self._num_joints
+#    @property
+#    def num_joints(self):
+#        return self._num_joints
 
     @property
     def x(self):
@@ -121,7 +121,7 @@ class NDProMP(object):
         for joint_demo in range(self.num_joints):
             self.promps[joint_demo].set_start(obsy[joint_demo], sigmay)
 
-    def generate_trajectory(self, randomness=1e-10):
+    def generate_trajectory(self, randomness=1e-10, obsrv=True):
         trajectory = []
         for joint_demo in range(self.num_joints):
             trajectory.append(self.promps[joint_demo].generate_trajectory(randomness))
@@ -147,28 +147,28 @@ class ProMP(object):
     Uni-dimensional probabilistic MP
     """
     def __init__(self, nrBasis=11, sigma=0.05, num_samples=100):
-        self.x = np.linspace(0, 1, num_samples)
-        self.nrSamples = len(self.x)
-        self.nrBasis = nrBasis
-        self.sigma = sigma
-        self.sigmaSignal = float('inf')  # Noise of signal (float)
-        self.C = np.arange(0,nrBasis)/(nrBasis-1.0)
+        self.x = np.linspace(0, 1, num_samples) # the time value
+        self.nrSamples = len(self.x)    # num of samples
+        self.nrBasis = nrBasis          # num of basis func
+        self.sigma = sigma              # the sigma of basis func
+        self.sigmaSignal = float('inf') # regarded as measurement noise
+        self.C = np.arange(0,nrBasis)/(nrBasis-1.0) # the mean of basis func along the time
         self.Phi = np.exp(-.5 * (np.array(map(lambda x: x - self.C, np.tile(self.x, (self.nrBasis, 1)).T)).T ** 2 / (self.sigma ** 2)))
-        self.Phi /= sum(self.Phi)
+        self.Phi /= sum(self.Phi)       # the basis func vector at diff time, regrad as (baisi func)11 X (sample len)100 matrix
 
         self.viapoints = []
         self.W = np.array([])
         self.nrTraj = 0
         self.meanW = None
         self.sigmaW = None
-        self.Y = np.empty((0, self.nrSamples), float)
+        self.Y = np.empty((0, self.nrSamples), float)   # the traj along time
 
     def add_demonstration(self, demonstration):
         interpolate = interp1d(np.linspace(0, 1, len(demonstration)), demonstration, kind='cubic')
         stretched_demo = interpolate(self.x)
         self.Y = np.vstack((self.Y, stretched_demo))
         self.nrTraj = len(self.Y)
-        self.W = np.dot(np.linalg.inv(np.dot(self.Phi, self.Phi.T)), np.dot(self.Phi, self.Y.T)).T  # weights for each trajectory
+        self.W = np.dot(np.linalg.inv(np.dot(self.Phi, self.Phi.T)), np.dot(self.Phi, self.Y.T)).T  # weights for each trajectory, MLE here
         self.meanW = np.mean(self.W, 0)                                                             # mean of weights
         w1 = np.array(map(lambda x: x - self.meanW.T, self.W))
         self.sigmaW = np.dot(w1.T, w1)/self.nrTraj                                                  # covariance of weights
@@ -255,7 +255,7 @@ class ProMP(object):
     def set_start(self, obsy, sigmay=1e-6):
         self.add_viapoint(0., obsy, sigmay)
 
-    def generate_trajectory(self, randomness=1e-10):
+    def generate_trajectory(self, randomness=1e-10, obsrv=True):
         """
         Outputs a trajectory
         :param randomness: float between 0. (output will be the mean of gaussians) and 1. (fully randomized inside the variance)
@@ -267,7 +267,11 @@ class ProMP(object):
         for viapoint in self.viapoints:
             PhiT = np.exp(-.5 * (np.array(map(lambda x: x - self.C, np.tile(viapoint['t'], (11, 1)).T)).T ** 2 / (self.sigma ** 2)))
             PhiT = PhiT / sum(PhiT)  # basis functions at observed time points
-
+            
+            # construct the Phi matrix for unobserved joint
+            if obsrv != True:
+                PhiT = np.zeros( len(self.C) )
+            
             # Conditioning
             aux = viapoint['sigmay'] + np.dot(np.dot(PhiT.T, newSigma), PhiT)
             newMu = newMu + np.dot(np.dot(newSigma, PhiT) * 1 / aux, (viapoint['obsy'] - np.dot(PhiT.T, newMu)))  # new weight mean conditioned on observations
@@ -280,7 +284,7 @@ class ProMP(object):
         mean = np.dot(self.Phi.T, self.meanW)
         x = self.x if x is None else x
         plt.plot(x, mean, color=color, label=legend)
-        std = 2*np.sqrt(np.diag(np.dot(self.Phi.T, np.dot(self.sigmaW, self.Phi))))
+        std = self.get_std()
         plt.fill_between(x, mean - std, mean + std, color=color, alpha=0.4)
         for viapoint_id, viapoint in enumerate(self.viapoints):
             x_index = x[int(round((len(x)-1)*viapoint['t'], 0))]
@@ -290,14 +294,20 @@ class IProMP(NDProMP):
     """
     (n+7)-dimensional Interaction ProMP
     """
-    def __init__(self, num_joints, nrBasis=11, sigma=0.05, num_samples=100):
-        self.num_joints = num_joints+7
+    def __init__(self, num_joints=6, nrBasis=11, sigma=0.05, num_samples=100):
+        NDProMP.__init__(self, num_joints=num_joints+7)        
+        self.num_joints = num_joints+7        
         self.promp_con = NDProMP(self.num_joints, nrBasis, sigma, num_samples)
         self.meanAlpha = None
         self.sigmaAlpha = None
+        
+    def add_demonstration(self, demonstration):
+        #add the phase val (alpha) estimation here
+        pass
     
-    def generate_trajectory(self, randomness=1e-10):
+    def generate_trajectory(self, randomness=1e-10, rDim=7):
         trajectory = []
         for joint_demo in range(self.num_joints):
             trajectory.append(self.promps[joint_demo].generate_trajectory(randomness))
         return np.array(trajectory).T[0]
+    
