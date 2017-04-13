@@ -36,5 +36,6 @@ p.plot(x=p.x, color='r')
 # plot the generated traj
 plt.plot(p.x, p.generate_trajectory(), 'g', label='generated traj',linewidth=3)
 
+# show the plot
 plt.legend()
 plt.show()
