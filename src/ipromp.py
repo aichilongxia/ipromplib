@@ -127,7 +127,7 @@ class NDProMP(object):
             trajectory.append(self.promps[joint_demo].generate_trajectory(randomness))
         return np.array(trajectory).T[0]
 
-    def plot(self, x=None, joint_names=(), output_randomess=0.5):
+    def plot(self, x=None, joint_names=(), output_randomess=1e-105):
         """
         Plot the means and variances of gaussians, requested viapoints as well as an output trajectory (dotted)
         :param output_randomess: 0. to 1., -1 to disable output plotting
@@ -140,7 +140,7 @@ class NDProMP(object):
             joint_name = "Joint {}".format(promp_idx+1) if len(joint_names) == 0 else joint_names[promp_idx]
             promp.plot(x, joint_name, color)
             if output_randomess >= 0:
-                plt.plot(x, output[promp_idx], linestyle='--', label="Out {}".format(joint_name), color=color, lw=2)
+                plt.plot(x, output[promp_idx], linestyle='--', label="Out {}".format(joint_name), color=color, lw=5)
 
 class ProMP(object):
     """
@@ -270,7 +270,8 @@ class ProMP(object):
             
             # construct the Phi matrix for unobserved joint
             if obsrv != True:
-                PhiT = np.zeros( len(self.C) )
+#                PhiT = np.zeros( len(self.C) )
+                PhiT=np.array([np.zeros( len(self.C) )]).T
             
             # Conditioning
             aux = viapoint['sigmay'] + np.dot(np.dot(PhiT.T, newSigma), PhiT)
@@ -289,25 +290,55 @@ class ProMP(object):
         for viapoint_id, viapoint in enumerate(self.viapoints):
             x_index = x[int(round((len(x)-1)*viapoint['t'], 0))]
             plt.plot(x_index, viapoint['obsy'], marker="o", markersize=10, label="Via {} {}".format(viapoint_id, legend), color=color)
-
+            
 class IProMP(NDProMP):
     """
-    (n+7)-dimensional Interaction ProMP
+    (n)-dimensional Interaction ProMP
     """
     def __init__(self, num_joints=6, nrBasis=11, sigma=0.05, num_samples=100):
-        NDProMP.__init__(self, num_joints=num_joints+7)        
-        self.num_joints = num_joints+7        
+        NDProMP.__init__(self, num_joints=num_joints)        
+        self.num_joints = num_joints     
         self.promp_con = NDProMP(self.num_joints, nrBasis, sigma, num_samples)
         self.meanAlpha = None
         self.sigmaAlpha = None
         
     def add_demonstration(self, demonstration):
         #add the phase val (alpha) estimation here
-        pass
-    
-    def generate_trajectory(self, randomness=1e-10, rDim=7):
+        demonstration = np.array(demonstration).T  # Revert the representation for each time for each joint, for each joint for each time
+
+        if len(demonstration) != self.num_joints:
+            raise ValueError("The given demonstration has {} joints while num_joints={}".format(len(demonstration), self.num_joints))
+
+        for joint_demo_idx, joint_demo in enumerate(demonstration):
+            self.promps[joint_demo_idx].add_demonstration(joint_demo)
+            
+        #add the phase val (alpha) estimation here
+            
+            
+    def generate_trajectory(self, randomness=1e-10, rDims=1):
+        """
+        :param rDims: the unobservated joints
+        """
         trajectory = []
+        ifBaseMat = True
         for joint_demo in range(self.num_joints):
-            trajectory.append(self.promps[joint_demo].generate_trajectory(randomness))
+            ifBaseMat = True if joint_demo < self.num_joints-rDims else False
+            trajectory.append(self.promps[joint_demo].generate_trajectory(randomness,ifBaseMat))
         return np.array(trajectory).T[0]
+        
+    def plot(self, x=None, joint_names=(), output_randomess=1e-105):
+        """
+        Plot the means and variances of gaussians, requested viapoints as well as an output trajectory (dotted)
+        :param output_randomess: 0. to 1., -1 to disable output plotting
+        """
+        if output_randomess >= 0:
+            output = self.generate_trajectory(output_randomess).T
+
+        for promp_idx, promp in enumerate(self.promps):
+            color = self.colors[promp_idx % len(self.colors)]
+            joint_name = "Joint {}".format(promp_idx+1) if len(joint_names) == 0 else joint_names[promp_idx]
+            promp.plot(x, joint_name, color)
+            if output_randomess >= 0:
+                plt.plot(x, output[promp_idx], linestyle='--', label="Out {}".format(joint_name), color=color, lw=5)
+
     
